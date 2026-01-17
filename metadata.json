@@ -1,0 +1,8 @@
+{
+  "name": "Ayara AI Assistant",
+  "description": "A next-generation autonomous AI talking assistant with a friendly, human-like personality, providing real-time voice conversation in Hinglish.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}
