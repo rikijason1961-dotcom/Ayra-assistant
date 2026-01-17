@@ -136,7 +136,7 @@ const App: React.FC = () => {
         setIsVideoActive(true);
       } catch (err: any) {
         console.error("Camera failed:", err);
-        setErrorMessage("Camera restricted.");
+        setErrorMessage("Camera access required.");
       }
     }
   };
@@ -186,12 +186,21 @@ const App: React.FC = () => {
     if (isConnectingRef.current || status === ConnectionStatus.CONNECTED) return;
     try {
       isConnectingRef.current = true;
+      setErrorMessage(null);
       setStatus(ConnectionStatus.CONNECTING);
+      
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+      if (!process.env.API_KEY) {
+        throw new Error("Missing API Key. Check Environment.");
+      }
+
       const inCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       const outCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      
+      // Explicitly resume on user gesture
       await inCtx.resume();
       await outCtx.resume();
+      
       audioContextRef.current = inCtx;
       outAudioContextRef.current = outCtx;
       
@@ -266,14 +275,20 @@ const App: React.FC = () => {
               setIsSpeaking(false);
             }
           },
-          onerror: (e) => { if (isConnectingRef.current || status === ConnectionStatus.CONNECTED) { setStatus(ConnectionStatus.ERROR); cleanup(); } },
+          onerror: (e) => { 
+            console.error("Live session error:", e);
+            setStatus(ConnectionStatus.ERROR); 
+            setErrorMessage("Session failed. Retrying...");
+            cleanup(); 
+          },
           onclose: () => cleanup(),
         },
       });
       sessionPromiseRef.current = sessionPromise;
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to start Ayara:", err);
       setStatus(ConnectionStatus.ERROR);
+      setErrorMessage(err.message || "Connection failed.");
       cleanup();
     } finally { isConnectingRef.current = false; }
   };
@@ -288,7 +303,7 @@ const App: React.FC = () => {
     <div className="flex h-[100dvh] w-full bg-[#020617] text-slate-200 overflow-hidden select-none font-sans">
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* LEFT COLUMN: SYSTEM DIAGNOSTICS - Desktop Only (lg breakpoint) */}
+      {/* LEFT COLUMN: SYSTEM DIAGNOSTICS - Desktop Only */}
       <aside className="hidden lg:flex flex-col w-[20%] min-w-[240px] max-w-[280px] p-4 gap-4 border-r border-white/5 bg-[#0a0f1e]/40 shrink-0">
         <div className="aspect-video glass rounded-xl overflow-hidden relative border border-white/10 shadow-lg bg-black shrink-0">
            {!isVideoActive && (
@@ -344,18 +359,17 @@ const App: React.FC = () => {
       {/* MAIN VIEWPORT */}
       <div className="flex-1 flex flex-col relative bg-[#020617] overflow-hidden">
         
-        {/* Top Navigation Bar - Mobile Optimization */}
+        {/* Top Navigation Bar */}
         <header className="flex-none p-4 md:p-6 lg:p-8 flex justify-between items-center z-50">
            <div className="flex flex-col items-start lg:items-center lg:w-full">
               <h1 className="text-3xl md:text-5xl lg:text-7xl xl:text-8xl font-black tracking-[0.1em] text-white leading-none drop-shadow-2xl">AYRA</h1>
               <div className="flex items-center gap-2 mt-1 md:mt-2">
                  <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${status === ConnectionStatus.CONNECTED ? 'bg-cyan-400 animate-pulse' : 'bg-slate-700'}`}></div>
                  <span className="text-[9px] md:text-[11px] font-bold tracking-[0.2em] text-slate-500 uppercase">
-                   {status === ConnectionStatus.CONNECTED ? (isSpeaking ? "ACTIVE" : (isMuted ? "MUTED" : "LISTENING")) : "IDLE"}
+                   {status === ConnectionStatus.CONNECTED ? (isSpeaking ? "ACTIVE" : (isMuted ? "MUTED" : "LISTENING")) : status === ConnectionStatus.CONNECTING ? "INITIALIZING" : "IDLE"}
                  </span>
               </div>
            </div>
-           {/* Mobile Timeline Toggle */}
            <button 
              onClick={() => setIsTimelineOpen(!isTimelineOpen)}
              className="lg:hidden w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-white/10 text-cyan-400"
@@ -364,7 +378,7 @@ const App: React.FC = () => {
            </button>
         </header>
 
-        {/* Visualizer - Centers the "Ayra Core" experience */}
+        {/* Visualizer */}
         <div className="flex-1 flex items-center justify-center pointer-events-none scale-75 sm:scale-90 md:scale-100 overflow-hidden">
            <Visualizer isActive={status === ConnectionStatus.CONNECTED} isSpeaking={isSpeaking} isListening={isListening} />
         </div>
@@ -375,16 +389,17 @@ const App: React.FC = () => {
               
               <div className="flex flex-col items-center gap-1.5">
                  <button 
+                  disabled={status === ConnectionStatus.CONNECTING}
                   onClick={status === ConnectionStatus.CONNECTED ? toggleMute : startConversation}
                   className={`w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-all active:scale-90 hover:brightness-110 ${
                     status === ConnectionStatus.CONNECTED 
                     ? (isMuted ? 'bg-red-500 text-white' : 'bg-cyan-400 text-black shadow-[0_0_15px_rgba(45,212,191,0.5)]') 
-                    : 'bg-white/10 text-cyan-400 border border-white/10'
+                    : (status === ConnectionStatus.CONNECTING ? 'bg-white/5 animate-pulse text-cyan-400' : 'bg-white/10 text-cyan-400 border border-white/10')
                   }`}
                 >
-                  <i className={`fa-solid ${status === ConnectionStatus.CONNECTED ? (isMuted ? 'fa-microphone-slash' : 'fa-microphone') : 'fa-power-off'} text-lg md:text-xl`}></i>
+                  <i className={`fa-solid ${status === ConnectionStatus.CONNECTED ? (isMuted ? 'fa-microphone-slash' : 'fa-microphone') : (status === ConnectionStatus.CONNECTING ? 'fa-spinner fa-spin' : 'fa-power-off')} text-lg md:text-xl`}></i>
                 </button>
-                <span className="text-[8px] md:text-[10px] font-bold tracking-widest text-slate-500">{status === ConnectionStatus.CONNECTED ? (isMuted ? 'OFF' : 'ON') : 'RUN'}</span>
+                <span className="text-[8px] md:text-[10px] font-bold tracking-widest text-slate-500">{status === ConnectionStatus.CONNECTED ? (isMuted ? 'OFF' : 'ON') : (status === ConnectionStatus.CONNECTING ? '...' : 'RUN')}</span>
               </div>
               
               <div className="flex flex-col items-center gap-1.5">
@@ -414,12 +429,12 @@ const App: React.FC = () => {
               )}
            </div>
            {errorMessage && (
-             <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest bg-red-400/10 px-3 py-1 rounded-full">{errorMessage}</p>
+             <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest bg-red-400/10 px-3 py-1 rounded-full animate-pulse">{errorMessage}</p>
            )}
         </div>
       </div>
 
-      {/* TIMELINE - Drawer on Mobile, Fixed Sidebar on Desktop */}
+      {/* TIMELINE */}
       <aside className={`
         fixed inset-0 lg:relative lg:inset-auto z-[100] lg:z-40
         w-full lg:w-[28%] max-w-full lg:max-w-[400px]

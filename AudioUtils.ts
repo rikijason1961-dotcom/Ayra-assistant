@@ -24,8 +24,16 @@ export async function decodeAudioData(
   sampleRate: number,
   numChannels: number,
 ): Promise<AudioBuffer> {
-  // Use byteOffset and byteLength to ensure we only look at this view's portion of the buffer
-  const dataInt16 = new Int16Array(data.buffer, data.byteOffset, data.byteLength / 2);
+  // Ensure we handle unaligned buffers safely to prevent RangeError
+  let dataInt16: Int16Array;
+  if (data.byteOffset % 2 === 0) {
+    dataInt16 = new Int16Array(data.buffer, data.byteOffset, data.byteLength / 2);
+  } else {
+    // Copy the buffer if it's unaligned
+    const alignedBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+    dataInt16 = new Int16Array(alignedBuffer);
+  }
+  
   const frameCount = dataInt16.length / numChannels;
   const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
 
